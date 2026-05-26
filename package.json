@@ -7,6 +7,8 @@
     "appium": "appium --address 127.0.0.1 --port 4723",
     "doctor": "appium driver list --installed && adb devices",
     "test:android": "wdio run wdio.conf.js",
+    "test:android:browserstack": "wdio run configs/browserstack.android.conf.js",
+    "test:android:devicefarm": "npm run test:android:browserstack",
     "test:ios": "wdio run configs/ios.conf.js",
     "test:ios:checkout": "wdio run configs/ios.conf.js --spec ./tests/ios/checkout.ios.spec.js",
     "test:ios:browserstack": "wdio run configs/browserstack.ios.conf.js --spec ./tests/ios/checkout.ios.spec.js",

@@ -1,0 +1,62 @@
+name: Mobile Android Device Farm CI
+
+on:
+  push:
+    branches:
+      - ci
+  pull_request:
+    branches:
+      - ci
+
+jobs:
+  android-browserstack:
+    name: Android Login on BrowserStack
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+      BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+      BROWSERSTACK_ANDROID_APP_ID: ${{ secrets.BROWSERSTACK_ANDROID_APP_ID }}
+      ANDROID_DEVICE_NAME: ${{ secrets.ANDROID_DEVICE_NAME }}
+      ANDROID_PLATFORM_VERSION: ${{ secrets.ANDROID_PLATFORM_VERSION }}
+      BROWSERSTACK_BUILD_NAME: GH-${{ github.run_number }}-${{ github.ref_name }}
+      BROWSERSTACK_PROJECT_NAME: EBAC Store Mobile Android
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Android tests on BrowserStack
+        run: |
+          set -o pipefail
+          mkdir -p logs reports/allure-results
+          npm run test:android:devicefarm 2>&1 | tee logs/wdio-android-browserstack.log
+
+      - name: Generate Allure report (if results exist)
+        if: always()
+        run: |
+          if [ -d "reports/allure-results" ] && [ "$(ls -A reports/allure-results)" ]; then
+            npm run allure:generate
+          else
+            echo "No Allure results found. Skipping report generation."
+          fi
+
+      - name: Upload execution artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-device-farm-evidences-${{ github.run_number }}
+          if-no-files-found: warn
+          path: |
+            logs/**
+            reports/allure-results/**
+            reports/allure-report/**
