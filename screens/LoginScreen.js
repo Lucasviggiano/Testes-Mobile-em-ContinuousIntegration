@@ -6,8 +6,11 @@ class LoginScreen extends IOSBaseScreen {
       '~input-email',
       '~email',
       '~Email',
+      '~emailTextField',
+      '-ios predicate string:type == "XCUIElementTypeTextView" AND (name CONTAINS[c] "email" OR label CONTAINS[c] "email" OR value CONTAINS[c] "email")',
       '-ios predicate string:type == "XCUIElementTypeTextField" AND (name CONTAINS[c] "email" OR label CONTAINS[c] "email" OR value CONTAINS[c] "email")',
-      '-ios class chain:**/XCUIElementTypeTextField[`name CONTAINS[c] "email" OR label CONTAINS[c] "email"`]'
+      '-ios class chain:**/XCUIElementTypeTextField[`name CONTAINS[c] "email" OR label CONTAINS[c] "email" OR value CONTAINS[c] "email"`]',
+      '-ios class chain:**/XCUIElementTypeTextView[`name CONTAINS[c] "email" OR label CONTAINS[c] "email" OR value CONTAINS[c] "email"`]'
     ];
   }
 
@@ -40,6 +43,8 @@ class LoginScreen extends IOSBaseScreen {
   }
 
   async login(email, password) {
+    // Some device farm sessions take extra time to render the login form.
+    await this.findFirst(this.emailInput, { timeout: 30000, displayed: true });
     await this.type(this.emailInput, email);
     await this.type(this.passwordInput, password);
     await this.tap(this.loginButton);
