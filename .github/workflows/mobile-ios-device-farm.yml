@@ -1,0 +1,62 @@
+name: Mobile iOS Device Farm CI
+
+on:
+  push:
+    branches:
+      - ci
+  pull_request:
+    branches:
+      - ci
+
+jobs:
+  ios-browserstack:
+    name: iOS Checkout on BrowserStack
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+      BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+      BROWSERSTACK_APP_ID: ${{ secrets.BROWSERSTACK_APP_ID }}
+      IOS_DEVICE_NAME: ${{ secrets.IOS_DEVICE_NAME }}
+      IOS_PLATFORM_VERSION: ${{ secrets.IOS_PLATFORM_VERSION }}
+      BROWSERSTACK_BUILD_NAME: GH-${{ github.run_number }}-${{ github.ref_name }}
+      BROWSERSTACK_PROJECT_NAME: EBAC Store Mobile iOS
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run iOS tests on BrowserStack
+        run: |
+          set -o pipefail
+          mkdir -p logs reports/allure-results
+          npm run test:ios:devicefarm 2>&1 | tee logs/wdio-browserstack.log
+
+      - name: Generate Allure report (if results exist)
+        if: always()
+        run: |
+          if [ -d "reports/allure-results" ] && [ "$(ls -A reports/allure-results)" ]; then
+            npm run allure:generate
+          else
+            echo "No Allure results found. Skipping report generation."
+          fi
+
+      - name: Upload execution artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-device-farm-evidences-${{ github.run_number }}
+          if-no-files-found: warn
+          path: |
+            logs/**
+            reports/allure-results/**
+            reports/allure-report/**
