@@ -1,0 +1,123 @@
+name: Mobile Cloud CI
+
+on:
+  push:
+    branches:
+      - ci
+  pull_request:
+    branches:
+      - ci
+  workflow_dispatch:
+
+jobs:
+  mobile-android-cloud:
+    name: Android Cloud Automation
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+      BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+      BROWSERSTACK_ANDROID_APP_ID: ${{ secrets.BROWSERSTACK_ANDROID_APP_ID }}
+      BROWSERSTACK_DEVICE_NAME: ${{ vars.BROWSERSTACK_DEVICE_NAME }}
+      BROWSERSTACK_OS_VERSION: ${{ vars.BROWSERSTACK_OS_VERSION }}
+      BROWSERSTACK_APP_PUBLIC_URL: ${{ vars.BROWSERSTACK_APP_PUBLIC_URL }}
+      BROWSERSTACK_MAX_INSTANCES: ${{ vars.BROWSERSTACK_MAX_INSTANCES }}
+      TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+      TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: automation/Mobile/package.json
+
+      - name: Validate mandatory secrets
+        run: |
+          if [ -z "$BROWSERSTACK_USERNAME" ] || [ -z "$BROWSERSTACK_ACCESS_KEY" ]; then
+            echo "BROWSERSTACK_USERNAME and BROWSERSTACK_ACCESS_KEY are mandatory."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        working-directory: automation/Mobile
+        run: npm install
+
+      - name: Resolve BrowserStack app identifier
+        shell: bash
+        run: |
+          set -o pipefail
+
+          if [ -n "$BROWSERSTACK_ANDROID_APP_ID" ]; then
+            echo "Using BROWSERSTACK_ANDROID_APP_ID from GitHub Secret."
+            echo "BROWSERSTACK_APP_ID=$BROWSERSTACK_ANDROID_APP_ID" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          APP_LOCAL_PATH="automation/Mobile/app/android/loja-ebac.apk"
+          APP_PUBLIC_URL="${BROWSERSTACK_APP_PUBLIC_URL:-}"
+
+          if [ -f "$APP_LOCAL_PATH" ]; then
+            echo "Uploading local APK artifact: $APP_LOCAL_PATH"
+            UPLOAD_RESPONSE=$(curl -u "$BROWSERSTACK_USERNAME:$BROWSERSTACK_ACCESS_KEY" \
+              -X POST "https://api-cloud.browserstack.com/app-automate/upload" \
+              -F "file=@$APP_LOCAL_PATH")
+          elif [ -n "$APP_PUBLIC_URL" ]; then
+            echo "Uploading APK from public URL."
+            UPLOAD_RESPONSE=$(curl -u "$BROWSERSTACK_USERNAME:$BROWSERSTACK_ACCESS_KEY" \
+              -X POST "https://api-cloud.browserstack.com/app-automate/upload" \
+              -F "url=$APP_PUBLIC_URL")
+          else
+            echo "No app reference found. Configure BROWSERSTACK_ANDROID_APP_ID secret, add local APK in automation/Mobile/app/android/loja-ebac.apk, or define BROWSERSTACK_APP_PUBLIC_URL repository variable."
+            exit 1
+          fi
+
+          APP_ID=$(echo "$UPLOAD_RESPONSE" | node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync(0,'utf8')); process.stdout.write(data.app_url || '');")
+          if [ -z "$APP_ID" ]; then
+            echo "BrowserStack upload did not return app_url."
+            echo "$UPLOAD_RESPONSE"
+            exit 1
+          fi
+
+          echo "BROWSERSTACK_APP_ID=$APP_ID" >> "$GITHUB_ENV"
+          echo "BrowserStack app uploaded successfully."
+
+      - name: Run cloud regression suite
+        working-directory: automation/Mobile
+        run: |
+          mkdir -p reports/logs reports/allure-results
+          npm run test:regression:cloud 2>&1 | tee reports/logs/wdio-regression-cloud.log
+
+      - name: Run cloud smoke suite
+        working-directory: automation/Mobile
+        run: |
+          if [ -n "$TEST_USER_EMAIL" ] && [ -n "$TEST_USER_PASSWORD" ]; then
+            npm run test:smoke:cloud 2>&1 | tee reports/logs/wdio-smoke-cloud.log
+          else
+            echo "Smoke suite skipped: TEST_USER_EMAIL/TEST_USER_PASSWORD not configured."
+          fi
+
+      - name: Generate Allure report
+        if: always()
+        working-directory: automation/Mobile
+        run: |
+          if [ -d "reports/allure-results" ] && [ "$(ls -A reports/allure-results)" ]; then
+            npm run allure:generate
+          else
+            echo "No Allure result files found."
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-cloud-evidences-${{ github.run_number }}
+          if-no-files-found: warn
+          path: |
+            automation/Mobile/reports/logs/**
+            automation/Mobile/reports/allure-results/**
+            automation/Mobile/reports/allure-report/**
