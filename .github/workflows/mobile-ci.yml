@@ -18,6 +18,7 @@ jobs:
       BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
       BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
       BROWSERSTACK_ANDROID_APP_ID: ${{ secrets.BROWSERSTACK_ANDROID_APP_ID }}
+      BROWSERSTACK_APP_ID: ${{ secrets.BROWSERSTACK_APP_ID }}
       BROWSERSTACK_DEVICE_NAME: ${{ vars.BROWSERSTACK_DEVICE_NAME }}
       BROWSERSTACK_OS_VERSION: ${{ vars.BROWSERSTACK_OS_VERSION }}
       BROWSERSTACK_APP_PUBLIC_URL: ${{ vars.BROWSERSTACK_APP_PUBLIC_URL }}
@@ -50,11 +51,17 @@ jobs:
       - name: Resolve BrowserStack app identifier
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
 
           if [ -n "$BROWSERSTACK_ANDROID_APP_ID" ]; then
             echo "Using BROWSERSTACK_ANDROID_APP_ID from GitHub Secret."
             echo "BROWSERSTACK_APP_ID=$BROWSERSTACK_ANDROID_APP_ID" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          if [ -n "$BROWSERSTACK_APP_ID" ]; then
+            echo "Using compatibility fallback secret: BROWSERSTACK_APP_ID."
+            echo "BROWSERSTACK_APP_ID=$BROWSERSTACK_APP_ID" >> "$GITHUB_ENV"
             exit 0
           fi
 
@@ -76,7 +83,7 @@ jobs:
             exit 1
           fi
 
-          APP_ID=$(echo "$UPLOAD_RESPONSE" | node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync(0,'utf8')); process.stdout.write(data.app_url || '');")
+          APP_ID=$(echo "$UPLOAD_RESPONSE" | node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync(0,'utf8')); if(data.error){process.stderr.write(data.error); process.exit(1);} process.stdout.write(data.app_url || '');")
           if [ -z "$APP_ID" ]; then
             echo "BrowserStack upload did not return app_url."
             echo "$UPLOAD_RESPONSE"
